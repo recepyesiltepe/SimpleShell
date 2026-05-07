@@ -33,7 +33,7 @@ int main(void) {
 
         TokenList tokens;
         token_list_init(&tokens);
-        if (tokenize_line(line, &tokens) != 0) {
+        if (tokenize_line(line, &tokens, exit_status) != 0) {
             token_list_free(&tokens);
             continue;
         }

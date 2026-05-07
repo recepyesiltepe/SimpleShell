@@ -25,6 +25,6 @@ typedef struct {
 
 void token_list_init(TokenList *list);
 void token_list_free(TokenList *list);
-int tokenize_line(const char *line, TokenList *tokens);
+int tokenize_line(const char *line, TokenList *tokens, int last_exit_status);
 
 #endif
