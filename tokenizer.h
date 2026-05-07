@@ -9,7 +9,8 @@ typedef enum {
     TOKEN_REDIR_APPEND,
     TOKEN_SEMICOLON,
     TOKEN_AND_IF,
-    TOKEN_OR_IF
+    TOKEN_OR_IF,
+    TOKEN_BACKGROUND
 } TokenType;
 
 typedef struct {

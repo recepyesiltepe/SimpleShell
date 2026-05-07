@@ -154,6 +154,11 @@ int tokenize_line(const char *line, TokenList *tokens, int last_exit_status) {
             cursor += 2;
             continue;
         }
+        if (*cursor == '&') {
+            push_operator(tokens, TOKEN_BACKGROUND);
+            cursor++;
+            continue;
+        }
         if (*cursor == '|' && *(cursor + 1) == '|') {
             push_operator(tokens, TOKEN_OR_IF);
             cursor += 2;

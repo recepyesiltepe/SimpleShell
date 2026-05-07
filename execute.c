@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "builtins.h"
+#include "jobs.h"
 #include "memory.h"
 #include "redirection.h"
 
@@ -115,6 +116,103 @@ static int run_pipeline(Pipeline *pipeline, bool *should_exit) {
     return final_status;
 }
 
+static int append_text(char *buffer, size_t buffer_size, size_t *index, const char *text) {
+    while (*text != '\0') {
+        if (*index + 1 >= buffer_size) {
+            return -1;
+        }
+        buffer[(*index)++] = *text++;
+    }
+    return 0;
+}
+
+static int describe_pipeline(Pipeline *pipeline, char *buffer, size_t buffer_size, size_t *index) {
+    for (int i = 0; i < pipeline->count; i++) {
+        Command *cmd = &pipeline->commands[i];
+        for (int j = 0; j < cmd->argc; j++) {
+            if (*index > 0 && append_text(buffer, buffer_size, index, " ") != 0) {
+                return -1;
+            }
+            if (append_text(buffer, buffer_size, index, cmd->argv[j]) != 0) {
+                return -1;
+            }
+        }
+        if (i < pipeline->count - 1 && append_text(buffer, buffer_size, index, " |") != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int describe_ast(AstNode *node, char *buffer, size_t buffer_size, size_t *index) {
+    if (!node) {
+        return 0;
+    }
+    switch (node->type) {
+    case AST_NODE_PIPELINE:
+        return describe_pipeline(&node->pipeline, buffer, buffer_size, index);
+    case AST_NODE_AND:
+        if (describe_ast(node->left, buffer, buffer_size, index) != 0 ||
+            append_text(buffer, buffer_size, index, " && ") != 0 ||
+            describe_ast(node->right, buffer, buffer_size, index) != 0) {
+            return -1;
+        }
+        return 0;
+    case AST_NODE_OR:
+        if (describe_ast(node->left, buffer, buffer_size, index) != 0 ||
+            append_text(buffer, buffer_size, index, " || ") != 0 ||
+            describe_ast(node->right, buffer, buffer_size, index) != 0) {
+            return -1;
+        }
+        return 0;
+    case AST_NODE_SEQUENCE:
+        if (describe_ast(node->left, buffer, buffer_size, index) != 0 ||
+            append_text(buffer, buffer_size, index, " ; ") != 0 ||
+            describe_ast(node->right, buffer, buffer_size, index) != 0) {
+            return -1;
+        }
+        return 0;
+    case AST_NODE_BACKGROUND:
+        if (describe_ast(node->left, buffer, buffer_size, index) != 0 ||
+            append_text(buffer, buffer_size, index, " &") != 0) {
+            return -1;
+        }
+        if (node->right) {
+            if (append_text(buffer, buffer_size, index, " ") != 0 ||
+                describe_ast(node->right, buffer, buffer_size, index) != 0) {
+                return -1;
+            }
+        }
+        return 0;
+    }
+    return -1;
+}
+
+static int run_background(AstNode *node) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        return 1;
+    }
+    if (pid == 0) {
+        bool should_exit = false;
+        int status = execute_ast(node->left, &should_exit);
+        _exit(status);
+    }
+
+    char description[512];
+    size_t index = 0;
+    if (describe_ast(node->left, description, sizeof(description), &index) != 0) {
+        snprintf(description, sizeof(description), "background-job-%d", pid);
+    } else {
+        description[index] = '\0';
+    }
+
+    int job_id = jobs_add(pid, description);
+    printf("[%d] %d\n", job_id, pid);
+    return 0;
+}
+
 int execute_ast(AstNode *node, bool *should_exit) {
     if (!node) {
         *should_exit = false;
@@ -148,6 +246,10 @@ int execute_ast(AstNode *node, bool *should_exit) {
         }
         return execute_ast(node->right, should_exit);
     }
+
+    case AST_NODE_BACKGROUND:
+        *should_exit = false;
+        return run_background(node);
     }
 
     *should_exit = false;

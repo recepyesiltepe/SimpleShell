@@ -3,7 +3,9 @@
 #include <string.h>
 
 #include "ast.h"
+#include "builtins.h"
 #include "execute.h"
+#include "jobs.h"
 #include "parser.h"
 #include "tokenizer.h"
 
@@ -14,6 +16,7 @@ int main(void) {
     int exit_status = 0;
 
     while (1) {
+        builtins_reap_jobs();
         printf("SimpleShell$ ");
         fflush(stdout);
 
@@ -60,5 +63,6 @@ int main(void) {
         }
     }
 
+    jobs_cleanup();
     return exit_status;
 }

@@ -7,6 +7,7 @@ SRC = shell.c \
       tokenizer.c \
       parser.c \
       builtins.c \
+      jobs.c \
       redirection.c \
       execute.c
 

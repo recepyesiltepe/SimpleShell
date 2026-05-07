@@ -22,7 +22,8 @@ typedef enum {
     AST_NODE_PIPELINE,
     AST_NODE_SEQUENCE,
     AST_NODE_AND,
-    AST_NODE_OR
+    AST_NODE_OR,
+    AST_NODE_BACKGROUND
 } AstNodeType;
 
 typedef struct AstNode {

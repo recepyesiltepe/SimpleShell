@@ -152,27 +152,55 @@ static int parse_and_or(ParserState *state, AstNode **out_node) {
 }
 
 static int parse_sequence(ParserState *state, AstNode **out_node) {
-    AstNode *left = NULL;
-    if (parse_and_or(state, &left) != 0) {
+    AstNode *current = NULL;
+    if (parse_and_or(state, &current) != 0) {
         return -1;
     }
 
-    while (match_token(state, TOKEN_SEMICOLON)) {
+    AstNode *list = NULL;
+
+    while (true) {
+        Token *token = peek_token(state);
+        if (!token ||
+            (token->type != TOKEN_SEMICOLON && token->type != TOKEN_BACKGROUND)) {
+            break;
+        }
+
+        bool run_in_background = token->type == TOKEN_BACKGROUND;
+        state->pos++;
+
+        AstNode *entry = current;
+        if (run_in_background) {
+            entry = ast_node_new_binary(AST_NODE_BACKGROUND, current, NULL);
+        }
+
+        if (!list) {
+            list = entry;
+        } else {
+            list = ast_node_new_binary(AST_NODE_SEQUENCE, list, entry);
+        }
+
         if (is_at_end(state)) {
+            if (run_in_background) {
+                *out_node = list;
+                return 0;
+            }
             parse_error("trailing ';'");
-            ast_node_free(left);
+            ast_node_free(list);
             return -1;
         }
 
-        AstNode *right = NULL;
-        if (parse_and_or(state, &right) != 0) {
-            ast_node_free(left);
+        if (parse_and_or(state, &current) != 0) {
+            ast_node_free(list);
             return -1;
         }
-        left = ast_node_new_binary(AST_NODE_SEQUENCE, left, right);
     }
 
-    *out_node = left;
+    if (!list) {
+        *out_node = current;
+    } else {
+        *out_node = ast_node_new_binary(AST_NODE_SEQUENCE, list, current);
+    }
     return 0;
 }
 
