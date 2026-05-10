@@ -3,6 +3,7 @@ CFLAGS = -Wall -Wextra -Werror -std=c11
 TARGET = SimpleShell
 SRC = shell.c \
       memory.c \
+      history.c \
       ast.c \
       tokenizer.c \
       parser.c \

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "history.h"
 #include "jobs.h"
 
 bool is_builtin(const Command *cmd) {
@@ -17,7 +18,8 @@ bool is_builtin(const Command *cmd) {
     return strcmp(cmd->argv[0], "cd") == 0 || strcmp(cmd->argv[0], "exit") == 0 ||
            strcmp(cmd->argv[0], "jobs") == 0 || strcmp(cmd->argv[0], "fg") == 0 ||
            strcmp(cmd->argv[0], "bg") == 0 || strcmp(cmd->argv[0], "pwd") == 0 ||
-           strcmp(cmd->argv[0], "export") == 0 || strcmp(cmd->argv[0], "unset") == 0;
+           strcmp(cmd->argv[0], "export") == 0 || strcmp(cmd->argv[0], "unset") == 0 ||
+           strcmp(cmd->argv[0], "history") == 0;
 }
 
 static int parse_exit_code(Command *cmd) {
@@ -211,6 +213,14 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
 
     if (strcmp(cmd->argv[0], "unset") == 0) {
         return run_unset_builtin(cmd);
+    }
+
+    if (strcmp(cmd->argv[0], "history") == 0) {
+        if (cmd->argc > 1) {
+            fprintf(stderr, "history: too many arguments\n");
+            return 1;
+        }
+        return history_print();
     }
 
     return 1;

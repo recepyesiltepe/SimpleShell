@@ -1,15 +1,26 @@
 #include <stdbool.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "ast.h"
 #include "builtins.h"
 #include "execute.h"
+#include "history.h"
 #include "jobs.h"
 #include "parser.h"
 #include "tokenizer.h"
 
 #define MAX_LINE_LEN 4096
+
+static bool has_non_whitespace(const char *text) {
+    for (const unsigned char *cursor = (const unsigned char *)text; *cursor != '\0'; cursor++) {
+        if (!isspace(*cursor)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 int main(void) {
     char line[MAX_LINE_LEN];
@@ -32,6 +43,10 @@ int main(void) {
         size_t line_len = strlen(line);
         if (line_len > 0 && line[line_len - 1] == '\n') {
             line[line_len - 1] = '\0';
+        }
+
+        if (has_non_whitespace(line)) {
+            history_add(line);
         }
 
         TokenList tokens;
@@ -63,6 +78,7 @@ int main(void) {
         }
     }
 
+    history_cleanup();
     jobs_cleanup();
     return exit_status;
 }
