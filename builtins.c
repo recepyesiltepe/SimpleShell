@@ -2,6 +2,7 @@
 
 #include "builtins.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +16,8 @@ bool is_builtin(const Command *cmd) {
     }
     return strcmp(cmd->argv[0], "cd") == 0 || strcmp(cmd->argv[0], "exit") == 0 ||
            strcmp(cmd->argv[0], "jobs") == 0 || strcmp(cmd->argv[0], "fg") == 0 ||
-           strcmp(cmd->argv[0], "pwd") == 0 || strcmp(cmd->argv[0], "export") == 0 ||
-           strcmp(cmd->argv[0], "unset") == 0;
+           strcmp(cmd->argv[0], "bg") == 0 || strcmp(cmd->argv[0], "pwd") == 0 ||
+           strcmp(cmd->argv[0], "export") == 0 || strcmp(cmd->argv[0], "unset") == 0;
 }
 
 static int parse_exit_code(Command *cmd) {
@@ -24,6 +25,32 @@ static int parse_exit_code(Command *cmd) {
         return 0;
     }
     return atoi(cmd->argv[1]);
+}
+
+static int parse_requested_job_id(const Command *cmd, const char *builtin_name, int *requested_id) {
+    if (cmd->argc <= 1) {
+        *requested_id = -1;
+        return 0;
+    }
+
+    const char *id_text = cmd->argv[1];
+    if (id_text[0] == '%') {
+        id_text++;
+    }
+    if (id_text[0] == '\0') {
+        fprintf(stderr, "%s: invalid job id\n", builtin_name);
+        return 1;
+    }
+
+    char *end = NULL;
+    long parsed = strtol(id_text, &end, 10);
+    if (*end != '\0' || parsed <= 0 || parsed > INT_MAX) {
+        fprintf(stderr, "%s: invalid job id\n", builtin_name);
+        return 1;
+    }
+
+    *requested_id = (int)parsed;
+    return 0;
 }
 
 static bool is_valid_name_char(char ch) {
@@ -153,17 +180,9 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
     }
 
     if (strcmp(cmd->argv[0], "fg") == 0) {
-        int requested_id = -1;
-        if (cmd->argc > 1) {
-            const char *id_text = cmd->argv[1];
-            if (id_text[0] == '%') {
-                id_text++;
-            }
-            requested_id = atoi(id_text);
-            if (requested_id <= 0) {
-                fprintf(stderr, "fg: invalid job id\n");
-                return 1;
-            }
+        int requested_id = 0;
+        if (parse_requested_job_id(cmd, "fg", &requested_id) != 0) {
+            return 1;
         }
 
         int fg_status = 0;
@@ -171,6 +190,15 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
             return 1;
         }
         return fg_status;
+    }
+
+    if (strcmp(cmd->argv[0], "bg") == 0) {
+        int requested_id = 0;
+        if (parse_requested_job_id(cmd, "bg", &requested_id) != 0) {
+            return 1;
+        }
+
+        return jobs_background(requested_id);
     }
 
     if (strcmp(cmd->argv[0], "pwd") == 0) {
@@ -189,7 +217,8 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
 }
 
 int run_builtin_child(Command *cmd) {
-    if (strcmp(cmd->argv[0], "jobs") == 0 || strcmp(cmd->argv[0], "fg") == 0) {
+    if (strcmp(cmd->argv[0], "jobs") == 0 || strcmp(cmd->argv[0], "fg") == 0 ||
+        strcmp(cmd->argv[0], "bg") == 0) {
         fprintf(stderr, "%s: not supported in pipeline\n", cmd->argv[0]);
         return 1;
     }

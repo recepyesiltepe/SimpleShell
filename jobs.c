@@ -1,6 +1,9 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "jobs.h"
 
 #include <stdbool.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
@@ -12,7 +15,8 @@ typedef struct {
     int id;
     pid_t pid;
     char *command;
-    bool finished;
+    bool stopped;
+    bool done;
     int wait_status;
 } Job;
 
@@ -81,13 +85,120 @@ static void remove_job_index(int index) {
 void jobs_reap_finished(void) {
     int wait_status = 0;
     pid_t pid = 0;
-    while ((pid = waitpid(-1, &wait_status, WNOHANG)) > 0) {
+    while ((pid = waitpid(-1, &wait_status, WNOHANG | WUNTRACED)) > 0) {
         int index = find_job_index_by_pid(pid);
         if (index >= 0) {
-            jobs[index].finished = true;
             jobs[index].wait_status = wait_status;
+            if (WIFEXITED(wait_status) || WIFSIGNALED(wait_status)) {
+                jobs[index].done = true;
+                jobs[index].stopped = false;
+            } else if (WIFSTOPPED(wait_status)) {
+                jobs[index].stopped = true;
+            }
         }
     }
+}
+
+static int continue_job(Job *job) {
+    if (kill(job->pid, SIGCONT) != 0) {
+        perror("kill(SIGCONT)");
+        return 1;
+    }
+    job->stopped = false;
+    return 0;
+}
+
+static int get_job_index_for_request(int requested_id, const char *builtin_name) {
+    int index = requested_id < 0 ? find_latest_job_index() : find_job_index_by_id(requested_id);
+    if (index < 0) {
+        fprintf(stderr, "%s: no such job\n", builtin_name);
+        return -1;
+    }
+    return index;
+}
+
+static void print_job_line(const Job *job) {
+    const char *state = "Running";
+    if (job->done) {
+        state = "Done";
+    } else if (job->stopped) {
+        state = "Stopped";
+    }
+    printf("[%d] %s %s\n", job->id, state, job->command);
+}
+
+int jobs_background(int requested_id) {
+    jobs_reap_finished();
+
+    int index = get_job_index_for_request(requested_id, "bg");
+    if (index < 0) {
+        return 1;
+    }
+
+    Job *job = &jobs[index];
+    if (job->done) {
+        fprintf(stderr, "bg: job already finished\n");
+        remove_job_index(index);
+        return 1;
+    }
+
+    if (job->stopped && continue_job(job) != 0) {
+        return 1;
+    }
+
+    print_job_line(job);
+    return 0;
+}
+
+static int wait_foreground_job(Job *job, int *wait_status) {
+    while (1) {
+        pid_t wait_result = waitpid(job->pid, wait_status, WUNTRACED);
+        if (wait_result < 0) {
+            perror("waitpid");
+            return 1;
+        }
+        if (WIFSTOPPED(*wait_status) || WIFEXITED(*wait_status) || WIFSIGNALED(*wait_status)) {
+            return 0;
+        }
+    }
+}
+
+int jobs_foreground(int requested_id, int *exit_status) {
+    jobs_reap_finished();
+
+    int index = get_job_index_for_request(requested_id, "fg");
+    if (index < 0) {
+        return 1;
+    }
+
+    Job *job = &jobs[index];
+    printf("%s\n", job->command);
+
+    if (job->done) {
+        *exit_status = exit_status_from_wait(job->wait_status);
+        remove_job_index(index);
+        return 0;
+    }
+
+    if (job->stopped && continue_job(job) != 0) {
+        return 1;
+    }
+
+    int wait_status = 0;
+    if (wait_foreground_job(job, &wait_status) != 0) {
+        return 1;
+    }
+
+    if (WIFSTOPPED(wait_status)) {
+        job->stopped = true;
+        job->wait_status = wait_status;
+        *exit_status = 128 + WSTOPSIG(wait_status);
+        return 0;
+    }
+
+    *exit_status = exit_status_from_wait(wait_status);
+    remove_job_index(index);
+    return 0;
 }
 
 int jobs_add(pid_t pid, const char *command) {
@@ -96,7 +207,8 @@ int jobs_add(pid_t pid, const char *command) {
     job->id = next_job_id++;
     job->pid = pid;
     job->command = xstrdup(command);
-    job->finished = false;
+    job->stopped = false;
+    job->done = false;
     job->wait_status = 0;
     return job->id;
 }
@@ -108,41 +220,15 @@ int jobs_print(void) {
     }
 
     for (int i = 0; i < jobs_count; i++) {
-        const char *state = jobs[i].finished ? "Done" : "Running";
-        printf("[%d] %s %s\n", jobs[i].id, state, jobs[i].command);
+        print_job_line(&jobs[i]);
     }
 
     for (int i = jobs_count - 1; i >= 0; i--) {
-        if (jobs[i].finished) {
+        if (jobs[i].done) {
             remove_job_index(i);
         }
     }
 
-    return 0;
-}
-
-int jobs_foreground(int requested_id, int *exit_status) {
-    jobs_reap_finished();
-
-    int index = requested_id < 0 ? find_latest_job_index() : find_job_index_by_id(requested_id);
-    if (index < 0) {
-        fprintf(stderr, "fg: no such job\n");
-        return 1;
-    }
-
-    Job *job = &jobs[index];
-    printf("%s\n", job->command);
-
-    int wait_status = job->wait_status;
-    if (!job->finished) {
-        if (waitpid(job->pid, &wait_status, 0) < 0) {
-            perror("waitpid");
-            return 1;
-        }
-    }
-
-    *exit_status = exit_status_from_wait(wait_status);
-    remove_job_index(index);
     return 0;
 }
 
