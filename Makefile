@@ -2,6 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -Werror -std=c11
 TARGET = SimpleShell
 SRC = shell.c \
+      line_editor.c \
       memory.c \
       history.c \
       ast.c \

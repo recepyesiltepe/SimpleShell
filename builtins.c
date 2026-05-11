@@ -3,6 +3,7 @@
 #include "builtins.h"
 
 #include <limits.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,7 +20,7 @@ bool is_builtin(const Command *cmd) {
            strcmp(cmd->argv[0], "jobs") == 0 || strcmp(cmd->argv[0], "fg") == 0 ||
            strcmp(cmd->argv[0], "bg") == 0 || strcmp(cmd->argv[0], "pwd") == 0 ||
            strcmp(cmd->argv[0], "export") == 0 || strcmp(cmd->argv[0], "unset") == 0 ||
-           strcmp(cmd->argv[0], "history") == 0;
+           strcmp(cmd->argv[0], "history") == 0 || strcmp(cmd->argv[0], "help") == 0;
 }
 
 static int parse_exit_code(Command *cmd) {
@@ -93,6 +94,29 @@ static int run_pwd_builtin(Command *cmd) {
     return 0;
 }
 
+static int run_help_builtin(Command *cmd) {
+    if (cmd->argc > 1) {
+        fprintf(stderr, "help: too many arguments\n");
+        return 1;
+    }
+
+    printf("Builtins:\n");
+    printf("  cd [DIR|-]          Change directory\n");
+    printf("  pwd                 Print current directory\n");
+    printf("  export KEY=VALUE    Set environment variable\n");
+    printf("  unset NAME...       Unset environment variable(s)\n");
+    printf("  history [N|-c]      Show last N history entries or clear history\n");
+    printf("  jobs                List background jobs\n");
+    printf("  fg [%%JOB]           Bring job to foreground\n");
+    printf("  bg [%%JOB]           Resume job in background\n");
+    printf("  exit [STATUS]       Exit shell\n");
+    printf("  help                Show this message\n");
+    printf("History expansion:\n");
+    printf("  !!                  Repeat previous command\n");
+    printf("  !N                  Run history entry number N\n");
+    return 0;
+}
+
 static int run_export_builtin(Command *cmd) {
     if (cmd->argc < 2) {
         fprintf(stderr, "export: expected KEY=VALUE\n");
@@ -160,15 +184,60 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
     *should_exit = false;
 
     if (strcmp(cmd->argv[0], "cd") == 0) {
+        if (cmd->argc > 2) {
+            fprintf(stderr, "cd: too many arguments\n");
+            return 1;
+        }
+
         const char *path = cmd->argc > 1 ? cmd->argv[1] : getenv("HOME");
+        const char *resolved_path = path;
         if (!path) {
             fprintf(stderr, "cd: HOME not set\n");
             return 1;
         }
-        if (chdir(path) != 0) {
+
+        if (strcmp(path, "-") == 0) {
+            const char *oldpwd = getenv("OLDPWD");
+            if (!oldpwd) {
+                fprintf(stderr, "cd: OLDPWD not set\n");
+                return 1;
+            }
+            resolved_path = oldpwd;
+        }
+
+        char *previous_dir = getcwd(NULL, 0);
+        if (!previous_dir) {
             perror("cd");
             return 1;
         }
+
+        if (chdir(resolved_path) != 0) {
+            perror("cd");
+            free(previous_dir);
+            return 1;
+        }
+
+        if (setenv("OLDPWD", previous_dir, 1) != 0) {
+            perror("cd");
+            free(previous_dir);
+            return 1;
+        }
+        free(previous_dir);
+
+        char *current_dir = getcwd(NULL, 0);
+        if (!current_dir) {
+            perror("cd");
+            return 1;
+        }
+        if (setenv("PWD", current_dir, 1) != 0) {
+            perror("cd");
+            free(current_dir);
+            return 1;
+        }
+        if (strcmp(path, "-") == 0) {
+            printf("%s\n", current_dir);
+        }
+        free(current_dir);
         return 0;
     }
 
@@ -216,11 +285,30 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
     }
 
     if (strcmp(cmd->argv[0], "history") == 0) {
-        if (cmd->argc > 1) {
-            fprintf(stderr, "history: too many arguments\n");
+        if (cmd->argc == 1) {
+            return history_print();
+        }
+        if (cmd->argc > 2) {
+            fprintf(stderr, "history: usage: history [N|-c]\n");
             return 1;
         }
-        return history_print();
+
+        if (strcmp(cmd->argv[1], "-c") == 0) {
+            return history_clear();
+        }
+
+        char *end = NULL;
+        errno = 0;
+        long count = strtol(cmd->argv[1], &end, 10);
+        if (errno != 0 || *end != '\0' || count < 0 || count > INT_MAX) {
+            fprintf(stderr, "history: invalid count: %s\n", cmd->argv[1]);
+            return 1;
+        }
+        return history_print_last((int)count);
+    }
+
+    if (strcmp(cmd->argv[0], "help") == 0) {
+        return run_help_builtin(cmd);
     }
 
     return 1;
