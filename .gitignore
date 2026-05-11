@@ -5,3 +5,5 @@ out.txt
 bin/
 .simpleshell_history
 __pycache__/
+*.py[cod]
+.simpleshell_ui.json
