@@ -117,6 +117,26 @@ const char *history_find_latest_containing(const char *query) {
     return NULL;
 }
 
+const char *history_find_previous_containing(const char *query, int before_entry_number,
+                                             int *found_entry_number) {
+    if (before_entry_number <= 1) {
+        return NULL;
+    }
+    if (before_entry_number > history_count + 1) {
+        before_entry_number = history_count + 1;
+    }
+
+    for (int i = before_entry_number - 2; i >= 0; i--) {
+        if (!query || query[0] == '\0' || strstr(history_entries[i], query) != NULL) {
+            if (found_entry_number) {
+                *found_entry_number = i + 1;
+            }
+            return history_entries[i];
+        }
+    }
+    return NULL;
+}
+
 int history_get_count(void) {
     return history_count;
 }

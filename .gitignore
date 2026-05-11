@@ -4,3 +4,4 @@ out.txt
 *.o
 bin/
 .simpleshell_history
+__pycache__/

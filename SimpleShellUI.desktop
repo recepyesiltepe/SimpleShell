@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SimpleShell UI
+Comment=Launch SimpleShell graphical interface
+Path=/home/recep/Proje/SimpleShell
+Exec=/home/recep/Proje/SimpleShell/launch_simpleshell_ui.sh
+Terminal=false
+Categories=Utility;Development;

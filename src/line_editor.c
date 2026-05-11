@@ -17,7 +17,9 @@
 #define CTRL_D 4
 #define CTRL_A 1
 #define CTRL_E 5
+#define CTRL_K 11
 #define CTRL_R 18
+#define CTRL_U 21
 #define BACKSPACE 127
 #define ESCAPE 27
 
@@ -277,7 +279,11 @@ static int read_tty_line(const char *prompt, char *buffer, size_t buffer_size) {
     int history_position = history_count + 1;
     int browsing_history = 0;
     char current_line[4096];
+    char reverse_search_query[4096];
+    int reverse_search_active = 0;
+    int reverse_search_before = history_count + 1;
     current_line[0] = '\0';
+    reverse_search_query[0] = '\0';
     printf("%s", prompt);
     fflush(stdout);
 
@@ -294,6 +300,7 @@ static int read_tty_line(const char *prompt, char *buffer, size_t buffer_size) {
             break;
         }
         if (ch == CTRL_D) {
+            reverse_search_active = 0;
             if (len == 0) {
                 tcsetattr(STDIN_FILENO, TCSANOW, &original);
                 return 0;
@@ -301,23 +308,52 @@ static int read_tty_line(const char *prompt, char *buffer, size_t buffer_size) {
             continue;
         }
         if (ch == CTRL_A) {
+            reverse_search_active = 0;
             cursor = 0;
             redraw_line_with_cursor(prompt, buffer, cursor);
             continue;
         }
         if (ch == CTRL_E) {
+            reverse_search_active = 0;
             cursor = len;
             redraw_line_with_cursor(prompt, buffer, cursor);
             continue;
         }
+        if (ch == CTRL_U) {
+            reverse_search_active = 0;
+            if (cursor > 0) {
+                memmove(buffer, buffer + cursor, len - cursor + 1);
+                len -= cursor;
+                cursor = 0;
+                redraw_line_with_cursor(prompt, buffer, cursor);
+            }
+            continue;
+        }
+        if (ch == CTRL_K) {
+            reverse_search_active = 0;
+            if (cursor < len) {
+                buffer[cursor] = '\0';
+                len = cursor;
+                redraw_line_with_cursor(prompt, buffer, cursor);
+            }
+            continue;
+        }
         if (ch == CTRL_C) {
+            reverse_search_active = 0;
             printf("^C\n");
             buffer[0] = '\0';
             len = 0;
             break;
         }
         if (ch == CTRL_R) {
-            const char *match = history_find_latest_containing(buffer);
+            if (!reverse_search_active) {
+                snprintf(reverse_search_query, sizeof(reverse_search_query), "%s", buffer);
+                reverse_search_before = history_get_count() + 1;
+                reverse_search_active = 1;
+            }
+            int found_entry_number = 0;
+            const char *match = history_find_previous_containing(reverse_search_query, reverse_search_before,
+                                                                 &found_entry_number);
             if (!match) {
                 putchar('\a');
                 fflush(stdout);
@@ -332,10 +368,12 @@ static int read_tty_line(const char *prompt, char *buffer, size_t buffer_size) {
             memcpy(buffer, match, match_len + 1);
             len = match_len;
             cursor = len;
+            reverse_search_before = found_entry_number;
             redraw_line_with_cursor(prompt, buffer, cursor);
             continue;
         }
         if (ch == '\t') {
+            reverse_search_active = 0;
             if (cursor != len) {
                 putchar('\a');
                 fflush(stdout);
@@ -346,6 +384,7 @@ static int read_tty_line(const char *prompt, char *buffer, size_t buffer_size) {
             continue;
         }
         if (ch == BACKSPACE || ch == '\b') {
+            reverse_search_active = 0;
             if (cursor > 0) {
                 memmove(buffer + cursor - 1, buffer + cursor, len - cursor + 1);
                 cursor--;
@@ -355,6 +394,7 @@ static int read_tty_line(const char *prompt, char *buffer, size_t buffer_size) {
             continue;
         }
         if (ch == ESCAPE) {
+            reverse_search_active = 0;
             unsigned char seq[2] = {0};
             if (read(STDIN_FILENO, &seq[0], 1) <= 0 || read(STDIN_FILENO, &seq[1], 1) <= 0) {
                 continue;
@@ -452,6 +492,7 @@ static int read_tty_line(const char *prompt, char *buffer, size_t buffer_size) {
             continue;
         }
         if (isprint(ch)) {
+            reverse_search_active = 0;
             if (len + 1 < buffer_size) {
                 memmove(buffer + cursor + 1, buffer + cursor, len - cursor + 1);
                 buffer[cursor] = (char)ch;
@@ -474,7 +515,15 @@ int read_command_line(const char *prompt, char *buffer, size_t buffer_size) {
         return -1;
     }
 
-    if (!isatty(STDIN_FILENO)) {
+    const char *disable_tty_editor = getenv("SIMPLESHELL_NO_TTY_EDITOR");
+    int should_use_plain_input = !isatty(STDIN_FILENO);
+    if (disable_tty_editor && strcmp(disable_tty_editor, "1") == 0) {
+        should_use_plain_input = 1;
+    }
+
+    if (should_use_plain_input) {
+        printf("%s", prompt);
+        fflush(stdout);
         if (!fgets(buffer, (int)buffer_size, stdin)) {
             return feof(stdin) ? 0 : -1;
         }

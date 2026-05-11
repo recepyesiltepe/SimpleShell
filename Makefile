@@ -13,7 +13,7 @@ SRC = src/shell.c \
       src/redirection.c \
       src/execute.c
 
-.PHONY: all clean
+.PHONY: all clean run-ui
 
 all: $(TARGET)
 
@@ -22,3 +22,6 @@ $(TARGET): $(SRC)
 
 clean:
 	rm -f $(TARGET)
+
+run-ui: $(TARGET)
+	python3 ui/simpleshell_gui.py
