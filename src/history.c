@@ -117,6 +117,10 @@ const char *history_find_latest_containing(const char *query) {
     return NULL;
 }
 
+int history_get_count(void) {
+    return history_count;
+}
+
 int history_init(void) {
     const char *home = getenv("HOME");
     if (home && home[0] != '\0') {

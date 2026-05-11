@@ -2,3 +2,5 @@ SimpleShell
 myshell
 out.txt
 *.o
+bin/
+.simpleshell_history

@@ -1,17 +1,17 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -std=c11
-TARGET = SimpleShell
-SRC = shell.c \
-      line_editor.c \
-      memory.c \
-      history.c \
-      ast.c \
-      tokenizer.c \
-      parser.c \
-      builtins.c \
-      jobs.c \
-      redirection.c \
-      execute.c
+CFLAGS = -Wall -Wextra -Werror -std=c11 -Iinclude
+TARGET = bin/SimpleShell
+SRC = src/shell.c \
+      src/line_editor.c \
+      src/memory.c \
+      src/history.c \
+      src/ast.c \
+      src/tokenizer.c \
+      src/parser.c \
+      src/builtins.c \
+      src/jobs.c \
+      src/redirection.c \
+      src/execute.c
 
 .PHONY: all clean
 

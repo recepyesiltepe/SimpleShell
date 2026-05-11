@@ -20,7 +20,8 @@ bool is_builtin(const Command *cmd) {
            strcmp(cmd->argv[0], "jobs") == 0 || strcmp(cmd->argv[0], "fg") == 0 ||
            strcmp(cmd->argv[0], "bg") == 0 || strcmp(cmd->argv[0], "pwd") == 0 ||
            strcmp(cmd->argv[0], "export") == 0 || strcmp(cmd->argv[0], "unset") == 0 ||
-           strcmp(cmd->argv[0], "history") == 0 || strcmp(cmd->argv[0], "help") == 0;
+           strcmp(cmd->argv[0], "history") == 0 || strcmp(cmd->argv[0], "help") == 0 ||
+           strcmp(cmd->argv[0], "type") == 0;
 }
 
 static int parse_exit_code(Command *cmd) {
@@ -106,6 +107,7 @@ static int run_help_builtin(Command *cmd) {
     printf("  export KEY=VALUE    Set environment variable\n");
     printf("  unset NAME...       Unset environment variable(s)\n");
     printf("  history [N|-c]      Show last N history entries or clear history\n");
+    printf("  type NAME...        Show how commands resolve\n");
     printf("  jobs                List background jobs\n");
     printf("  fg [%%JOB]           Bring job to foreground\n");
     printf("  bg [%%JOB]           Resume job in background\n");
@@ -115,6 +117,72 @@ static int run_help_builtin(Command *cmd) {
     printf("  !!                  Repeat previous command\n");
     printf("  !N                  Run history entry number N\n");
     return 0;
+}
+
+static int find_in_path(const char *name, char *resolved_path, size_t resolved_path_size) {
+    const char *path_value = getenv("PATH");
+    if (!path_value || path_value[0] == '\0') {
+        return 1;
+    }
+
+    const char *cursor = path_value;
+    while (*cursor != '\0') {
+        const char *segment_end = cursor;
+        while (*segment_end != '\0' && *segment_end != ':') {
+            segment_end++;
+        }
+
+        size_t segment_len = (size_t)(segment_end - cursor);
+        if (segment_len == 0) {
+            if (snprintf(resolved_path, resolved_path_size, "./%s", name) >= 0 &&
+                access(resolved_path, X_OK) == 0) {
+                return 0;
+            }
+        } else if (snprintf(resolved_path, resolved_path_size, "%.*s/%s", (int)segment_len, cursor, name) >=
+                       0 &&
+                   access(resolved_path, X_OK) == 0) {
+            return 0;
+        }
+
+        cursor = *segment_end == ':' ? segment_end + 1 : segment_end;
+    }
+
+    return 1;
+}
+
+static int run_type_builtin(Command *cmd) {
+    if (cmd->argc < 2) {
+        fprintf(stderr, "type: expected at least one command name\n");
+        return 1;
+    }
+
+    int status = 0;
+    for (int i = 1; i < cmd->argc; i++) {
+        Command candidate = {.argv = &cmd->argv[i], .argc = 1};
+        if (is_builtin(&candidate)) {
+            printf("%s is a shell builtin\n", cmd->argv[i]);
+            continue;
+        }
+        if (strchr(cmd->argv[i], '/')) {
+            if (access(cmd->argv[i], X_OK) == 0) {
+                printf("%s is %s\n", cmd->argv[i], cmd->argv[i]);
+            } else {
+                printf("%s not found\n", cmd->argv[i]);
+                status = 1;
+            }
+            continue;
+        }
+
+        char path[PATH_MAX];
+        if (find_in_path(cmd->argv[i], path, sizeof(path)) == 0) {
+            printf("%s is %s\n", cmd->argv[i], path);
+        } else {
+            printf("%s not found\n", cmd->argv[i]);
+            status = 1;
+        }
+    }
+
+    return status;
 }
 
 static int run_export_builtin(Command *cmd) {
@@ -309,6 +377,10 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
 
     if (strcmp(cmd->argv[0], "help") == 0) {
         return run_help_builtin(cmd);
+    }
+
+    if (strcmp(cmd->argv[0], "type") == 0) {
+        return run_type_builtin(cmd);
     }
 
     return 1;
