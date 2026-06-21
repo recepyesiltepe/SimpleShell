@@ -23,7 +23,7 @@ jobs:
             build-essential \
             file \
             gir1.2-gtk-4.0 \
-            libgdk-pixbuf-2.0-bin \
+            libgdk-pixbuf2.0-bin \
             libgtk-4-1 \
             libtiff5 \
             python3 \
