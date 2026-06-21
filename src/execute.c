@@ -1,6 +1,10 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "execute.h"
 
 #include <errno.h>
+#include <stdbool.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +16,153 @@
 #include "jobs.h"
 #include "memory.h"
 #include "redirection.h"
+
+typedef struct {
+    char *name;
+    char *value;
+    bool existed;
+} SavedEnv;
+
+static char *assignment_name(const char *assignment) {
+    const char *equals = strchr(assignment, '=');
+    if (!equals) {
+        return NULL;
+    }
+    size_t name_len = (size_t)(equals - assignment);
+    char *name = xmalloc(name_len + 1);
+    memcpy(name, assignment, name_len);
+    name[name_len] = '\0';
+    return name;
+}
+
+static int set_command_env_permanent(Command *cmd) {
+    for (int i = 0; i < cmd->env_count; i++) {
+        char *name = assignment_name(cmd->env_assignments[i]);
+        if (!name) {
+            return 1;
+        }
+        const char *value = strchr(cmd->env_assignments[i], '=') + 1;
+        if (setenv(name, value, 1) != 0) {
+            perror("setenv");
+            free(name);
+            return 1;
+        }
+        free(name);
+    }
+    return 0;
+}
+
+static int apply_command_env(Command *cmd, SavedEnv **out_saved) {
+    *out_saved = NULL;
+    if (cmd->env_count == 0) {
+        return 0;
+    }
+
+    SavedEnv *saved = xmalloc((size_t)cmd->env_count * sizeof(SavedEnv));
+    for (int i = 0; i < cmd->env_count; i++) {
+        saved[i].name = assignment_name(cmd->env_assignments[i]);
+        saved[i].value = NULL;
+        saved[i].existed = false;
+
+        if (!saved[i].name) {
+            free(saved);
+            return 1;
+        }
+
+        const char *old_value = getenv(saved[i].name);
+        if (old_value) {
+            saved[i].value = xstrdup(old_value);
+            saved[i].existed = true;
+        }
+
+        const char *new_value = strchr(cmd->env_assignments[i], '=') + 1;
+        if (setenv(saved[i].name, new_value, 1) != 0) {
+            perror("setenv");
+            for (int j = 0; j <= i; j++) {
+                free(saved[j].name);
+                free(saved[j].value);
+            }
+            free(saved);
+            return 1;
+        }
+    }
+
+    *out_saved = saved;
+    return 0;
+}
+
+static void restore_command_env(SavedEnv *saved, int count) {
+    if (!saved) {
+        return;
+    }
+    for (int i = count - 1; i >= 0; i--) {
+        if (saved[i].existed) {
+            if (setenv(saved[i].name, saved[i].value, 1) != 0) {
+                perror("setenv");
+            }
+        } else if (unsetenv(saved[i].name) != 0) {
+            perror("unsetenv");
+        }
+        free(saved[i].name);
+        free(saved[i].value);
+    }
+    free(saved);
+}
+
+static int save_and_apply_parent_redirections(Command *cmd, int *saved_stdin, int *saved_stdout) {
+    *saved_stdin = -1;
+    *saved_stdout = -1;
+
+    if (cmd->input_file) {
+        *saved_stdin = dup(STDIN_FILENO);
+        if (*saved_stdin < 0) {
+            perror("dup");
+            return 1;
+        }
+    }
+    if (cmd->output_file) {
+        *saved_stdout = dup(STDOUT_FILENO);
+        if (*saved_stdout < 0) {
+            perror("dup");
+            if (*saved_stdin >= 0) {
+                close(*saved_stdin);
+                *saved_stdin = -1;
+            }
+            return 1;
+        }
+    }
+
+    if (apply_redirections(cmd) != 0) {
+        if (*saved_stdin >= 0) {
+            dup2(*saved_stdin, STDIN_FILENO);
+            close(*saved_stdin);
+            *saved_stdin = -1;
+        }
+        if (*saved_stdout >= 0) {
+            dup2(*saved_stdout, STDOUT_FILENO);
+            close(*saved_stdout);
+            *saved_stdout = -1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static void restore_parent_redirections(int saved_stdin, int saved_stdout) {
+    fflush(stdout);
+    if (saved_stdin >= 0) {
+        if (dup2(saved_stdin, STDIN_FILENO) < 0) {
+            perror("dup2");
+        }
+        close(saved_stdin);
+    }
+    if (saved_stdout >= 0) {
+        if (dup2(saved_stdout, STDOUT_FILENO) < 0) {
+            perror("dup2");
+        }
+        close(saved_stdout);
+    }
+}
 
 static void close_pipe_ends(int (*pipes)[2], int pipe_count) {
     for (int i = 0; i < pipe_count; i++) {
@@ -33,8 +184,28 @@ static int status_from_wait(int wait_status) {
 static int run_pipeline(Pipeline *pipeline, bool *should_exit) {
     *should_exit = false;
 
+    if (pipeline->count == 1 && pipeline->commands[0].argc == 0) {
+        return set_command_env_permanent(&pipeline->commands[0]);
+    }
+
     if (pipeline->count == 1 && is_builtin(&pipeline->commands[0])) {
-        return run_builtin_parent(&pipeline->commands[0], should_exit);
+        Command *cmd = &pipeline->commands[0];
+        int saved_stdin = -1;
+        int saved_stdout = -1;
+        if (save_and_apply_parent_redirections(cmd, &saved_stdin, &saved_stdout) != 0) {
+            return 1;
+        }
+
+        SavedEnv *saved_env = NULL;
+        if (apply_command_env(cmd, &saved_env) != 0) {
+            restore_parent_redirections(saved_stdin, saved_stdout);
+            return 1;
+        }
+
+        int status = run_builtin_parent(cmd, should_exit);
+        restore_command_env(saved_env, cmd->env_count);
+        restore_parent_redirections(saved_stdin, saved_stdout);
+        return status;
     }
 
     int pipe_count = pipeline->count - 1;
@@ -69,6 +240,9 @@ static int run_pipeline(Pipeline *pipeline, bool *should_exit) {
         }
 
         if (pid == 0) {
+            if (set_command_env_permanent(&pipeline->commands[i]) != 0) {
+                _exit(EXIT_FAILURE);
+            }
             if (pipe_count > 0) {
                 if (i > 0 && dup2(pipes[i - 1][0], STDIN_FILENO) < 0) {
                     perror("dup2");
@@ -83,6 +257,10 @@ static int run_pipeline(Pipeline *pipeline, bool *should_exit) {
 
             if (apply_redirections(&pipeline->commands[i]) != 0) {
                 _exit(EXIT_FAILURE);
+            }
+
+            if (pipeline->commands[i].argc == 0) {
+                _exit(EXIT_SUCCESS);
             }
 
             if (is_builtin(&pipeline->commands[i])) {
@@ -129,6 +307,14 @@ static int append_text(char *buffer, size_t buffer_size, size_t *index, const ch
 static int describe_pipeline(Pipeline *pipeline, char *buffer, size_t buffer_size, size_t *index) {
     for (int i = 0; i < pipeline->count; i++) {
         Command *cmd = &pipeline->commands[i];
+        for (int j = 0; j < cmd->env_count; j++) {
+            if (*index > 0 && append_text(buffer, buffer_size, index, " ") != 0) {
+                return -1;
+            }
+            if (append_text(buffer, buffer_size, index, cmd->env_assignments[j]) != 0) {
+                return -1;
+            }
+        }
         for (int j = 0; j < cmd->argc; j++) {
             if (*index > 0 && append_text(buffer, buffer_size, index, " ") != 0) {
                 return -1;

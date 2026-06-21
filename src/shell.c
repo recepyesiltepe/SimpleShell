@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "aliases.h"
 #include "ast.h"
 #include "builtins.h"
 #include "execute.h"
@@ -99,10 +100,13 @@ int main(void) {
             history_add(line_to_run);
         }
 
+        char *aliased_line = aliases_expand_line(line_to_run);
+
         TokenList tokens;
         token_list_init(&tokens);
-        if (tokenize_line(line_to_run, &tokens, exit_status) != 0) {
+        if (tokenize_line(aliased_line, &tokens, exit_status) != 0) {
             token_list_free(&tokens);
+            free(aliased_line);
             continue;
         }
 
@@ -110,10 +114,12 @@ int main(void) {
         int parse_status = parse_tokens(&tokens, &root);
         if (parse_status == 1) {
             token_list_free(&tokens);
+            free(aliased_line);
             continue;
         }
         if (parse_status != 0) {
             token_list_free(&tokens);
+            free(aliased_line);
             continue;
         }
 
@@ -122,6 +128,7 @@ int main(void) {
 
         ast_node_free(root);
         token_list_free(&tokens);
+        free(aliased_line);
 
         if (should_exit) {
             break;
@@ -129,6 +136,7 @@ int main(void) {
     }
 
     history_cleanup();
+    aliases_cleanup();
     jobs_cleanup();
     return exit_status;
 }

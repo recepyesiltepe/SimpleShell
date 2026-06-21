@@ -9,6 +9,9 @@ void command_init(Command *cmd) {
     cmd->argv_capacity = 8;
     cmd->argv = xmalloc((size_t)cmd->argv_capacity * sizeof(char *));
     cmd->argv[0] = NULL;
+    cmd->env_count = 0;
+    cmd->env_capacity = 4;
+    cmd->env_assignments = xmalloc((size_t)cmd->env_capacity * sizeof(char *));
     cmd->input_file = NULL;
     cmd->output_file = NULL;
     cmd->append_output = false;
@@ -23,17 +26,33 @@ void command_add_arg(Command *cmd, const char *arg) {
     cmd->argv[cmd->argc] = NULL;
 }
 
+void command_add_env_assignment(Command *cmd, const char *assignment) {
+    if (cmd->env_count == cmd->env_capacity) {
+        cmd->env_capacity *= 2;
+        cmd->env_assignments =
+            xrealloc(cmd->env_assignments, (size_t)cmd->env_capacity * sizeof(char *));
+    }
+    cmd->env_assignments[cmd->env_count++] = xstrdup(assignment);
+}
+
 void command_free(Command *cmd) {
     for (int i = 0; i < cmd->argc; i++) {
         free(cmd->argv[i]);
     }
+    for (int i = 0; i < cmd->env_count; i++) {
+        free(cmd->env_assignments[i]);
+    }
     free(cmd->argv);
+    free(cmd->env_assignments);
     free(cmd->input_file);
     free(cmd->output_file);
 
     cmd->argv = NULL;
     cmd->argc = 0;
     cmd->argv_capacity = 0;
+    cmd->env_assignments = NULL;
+    cmd->env_count = 0;
+    cmd->env_capacity = 0;
     cmd->input_file = NULL;
     cmd->output_file = NULL;
     cmd->append_output = false;

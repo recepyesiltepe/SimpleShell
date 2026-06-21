@@ -7,6 +7,9 @@ typedef struct {
     char **argv;
     int argc;
     int argv_capacity;
+    char **env_assignments;
+    int env_count;
+    int env_capacity;
     char *input_file;
     char *output_file;
     bool append_output;
@@ -35,6 +38,7 @@ typedef struct AstNode {
 
 void command_init(Command *cmd);
 void command_add_arg(Command *cmd, const char *arg);
+void command_add_env_assignment(Command *cmd, const char *assignment);
 void command_free(Command *cmd);
 
 void pipeline_init(Pipeline *pipeline);

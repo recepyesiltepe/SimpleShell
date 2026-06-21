@@ -4,6 +4,7 @@ TARGET = bin/SimpleShell
 SRC = src/shell.c \
       src/line_editor.c \
       src/memory.c \
+      src/aliases.c \
       src/history.c \
       src/ast.c \
       src/tokenizer.c \
@@ -18,6 +19,7 @@ SRC = src/shell.c \
 all: $(TARGET)
 
 $(TARGET): $(SRC)
+	mkdir -p $(dir $(TARGET))
 	$(CC) $(CFLAGS) $(SRC) -o $(TARGET)
 
 clean:

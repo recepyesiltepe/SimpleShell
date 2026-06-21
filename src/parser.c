@@ -40,6 +40,26 @@ static bool token_starts_command(Token *token) {
            token->type == TOKEN_REDIR_OUT || token->type == TOKEN_REDIR_APPEND;
 }
 
+static bool is_assignment_word(const char *text) {
+    if (!text || text[0] == '\0') {
+        return false;
+    }
+    if (!((text[0] >= 'A' && text[0] <= 'Z') || (text[0] >= 'a' && text[0] <= 'z') ||
+          text[0] == '_')) {
+        return false;
+    }
+    for (const char *cursor = text + 1; *cursor != '\0'; cursor++) {
+        if (*cursor == '=') {
+            return cursor != text;
+        }
+        if (!((*cursor >= 'A' && *cursor <= 'Z') || (*cursor >= 'a' && *cursor <= 'z') ||
+              (*cursor >= '0' && *cursor <= '9') || *cursor == '_')) {
+            return false;
+        }
+    }
+    return false;
+}
+
 static void parse_error(const char *message) {
     fprintf(stderr, "Syntax error: %s\n", message);
 }
@@ -54,8 +74,12 @@ static int parse_command(ParserState *state, Command *cmd) {
         }
 
         if (token->type == TOKEN_WORD) {
-            command_add_arg(cmd, token->text);
-            saw_word = true;
+            if (!saw_word && is_assignment_word(token->text)) {
+                command_add_env_assignment(cmd, token->text);
+            } else {
+                command_add_arg(cmd, token->text);
+                saw_word = true;
+            }
             state->pos++;
             continue;
         }
@@ -87,7 +111,7 @@ static int parse_command(ParserState *state, Command *cmd) {
         state->pos++;
     }
 
-    if (!saw_word) {
+    if (!saw_word && cmd->env_count == 0) {
         parse_error("missing command");
         return -1;
     }
@@ -107,11 +131,23 @@ static int parse_pipeline(ParserState *state, AstNode **out_node) {
         pipeline_free(&pipeline);
         return -1;
     }
+    if (current.argc == 0 && peek_token(state) && peek_token(state)->type == TOKEN_PIPE) {
+        parse_error("missing command");
+        command_free(&current);
+        pipeline_free(&pipeline);
+        return -1;
+    }
     pipeline_push_command(&pipeline, &current);
 
     while (match_token(state, TOKEN_PIPE)) {
         command_init(&current);
         if (parse_command(state, &current) != 0) {
+            command_free(&current);
+            pipeline_free(&pipeline);
+            return -1;
+        }
+        if (current.argc == 0) {
+            parse_error("missing command");
             command_free(&current);
             pipeline_free(&pipeline);
             return -1;

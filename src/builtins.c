@@ -9,8 +9,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "aliases.h"
 #include "history.h"
 #include "jobs.h"
+#include "memory.h"
 
 bool is_builtin(const Command *cmd) {
     if (!cmd || cmd->argc == 0) {
@@ -21,7 +23,8 @@ bool is_builtin(const Command *cmd) {
            strcmp(cmd->argv[0], "bg") == 0 || strcmp(cmd->argv[0], "pwd") == 0 ||
            strcmp(cmd->argv[0], "export") == 0 || strcmp(cmd->argv[0], "unset") == 0 ||
            strcmp(cmd->argv[0], "history") == 0 || strcmp(cmd->argv[0], "help") == 0 ||
-           strcmp(cmd->argv[0], "type") == 0;
+           strcmp(cmd->argv[0], "type") == 0 || strcmp(cmd->argv[0], "alias") == 0 ||
+           strcmp(cmd->argv[0], "unalias") == 0;
 }
 
 static int parse_exit_code(Command *cmd) {
@@ -106,6 +109,8 @@ static int run_help_builtin(Command *cmd) {
     printf("  pwd                 Print current directory\n");
     printf("  export KEY=VALUE    Set environment variable\n");
     printf("  unset NAME...       Unset environment variable(s)\n");
+    printf("  alias [NAME=VALUE]  Define or list aliases\n");
+    printf("  unalias NAME...     Remove aliases\n");
     printf("  history [N|-c]      Show last N history entries or clear history\n");
     printf("  type NAME...        Show how commands resolve\n");
     printf("  jobs                List background jobs\n");
@@ -117,6 +122,49 @@ static int run_help_builtin(Command *cmd) {
     printf("  !!                  Repeat previous command\n");
     printf("  !N                  Run history entry number N\n");
     return 0;
+}
+
+static int run_alias_builtin(Command *cmd) {
+    if (cmd->argc == 1) {
+        return aliases_print_all();
+    }
+
+    int status = 0;
+    for (int i = 1; i < cmd->argc; i++) {
+        char *equals = strchr(cmd->argv[i], '=');
+        if (!equals) {
+            if (aliases_print(cmd->argv[i]) != 0) {
+                status = 1;
+            }
+            continue;
+        }
+
+        size_t name_len = (size_t)(equals - cmd->argv[i]);
+        char *name = xmalloc(name_len + 1);
+        memcpy(name, cmd->argv[i], name_len);
+        name[name_len] = '\0';
+
+        if (aliases_set(name, equals + 1) != 0) {
+            status = 1;
+        }
+        free(name);
+    }
+    return status;
+}
+
+static int run_unalias_builtin(Command *cmd) {
+    if (cmd->argc < 2) {
+        fprintf(stderr, "unalias: expected one or more alias names\n");
+        return 1;
+    }
+
+    int status = 0;
+    for (int i = 1; i < cmd->argc; i++) {
+        if (aliases_remove(cmd->argv[i]) != 0) {
+            status = 1;
+        }
+    }
+    return status;
 }
 
 static int find_in_path(const char *name, char *resolved_path, size_t resolved_path_size) {
@@ -381,6 +429,14 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
 
     if (strcmp(cmd->argv[0], "type") == 0) {
         return run_type_builtin(cmd);
+    }
+
+    if (strcmp(cmd->argv[0], "alias") == 0) {
+        return run_alias_builtin(cmd);
+    }
+
+    if (strcmp(cmd->argv[0], "unalias") == 0) {
+        return run_unalias_builtin(cmd);
     }
 
     return 1;
