@@ -21,6 +21,7 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
     def __init__(self, app: Gtk.Application) -> None:
         super().__init__(application=app, title="SimpleShell UI")
 
+        self.install_icon_theme()
         self.settings_path = Path.home() / ".simpleshell_ui.json"
         self.settings = self.load_settings()
         self.font_size = int(self.settings.get("font_size", 11))
@@ -41,11 +42,12 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
             int(self.settings.get("height", 600)),
         )
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        root.set_margin_top(8)
-        root.set_margin_bottom(8)
-        root.set_margin_start(8)
-        root.set_margin_end(8)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        root.set_margin_top(10)
+        root.set_margin_bottom(10)
+        root.set_margin_start(10)
+        root.set_margin_end(10)
+        root.add_css_class("app-root")
         self.set_child(root)
 
         self.text_view = Gtk.TextView()
@@ -64,32 +66,37 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
         scroller = Gtk.ScrolledWindow()
         scroller.set_hexpand(True)
         scroller.set_vexpand(True)
+        scroller.add_css_class("console-frame")
         scroller.set_child(self.text_view)
         root.append(scroller)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        controls.add_css_class("toolbar")
         root.append(controls)
 
-        hint = Gtk.Label(label="Click console and type. Press Enter to run.")
-        hint.set_hexpand(True)
-        hint.set_xalign(0)
-        controls.append(hint)
+        self.hint_label = Gtk.Label(label="Console ready. Type commands and press Enter.")
+        self.hint_label.set_hexpand(True)
+        self.hint_label.set_xalign(0)
+        self.hint_label.add_css_class("hint-label")
+        controls.append(self.hint_label)
 
-        clear_button = Gtk.Button(label="Clear")
-        clear_button.connect("clicked", self.on_clear_clicked)
-        controls.append(clear_button)
+        self.clear_button = self.create_toolbar_button("Clear")
+        self.clear_button.connect("clicked", self.on_clear_clicked)
+        controls.append(self.clear_button)
 
-        theme_button = Gtk.Button(label="Toggle Theme")
-        theme_button.connect("clicked", self.on_toggle_theme_clicked)
-        controls.append(theme_button)
+        self.theme_button = self.create_toolbar_button("Light Mode")
+        self.theme_button.connect("clicked", self.on_toggle_theme_clicked)
+        controls.append(self.theme_button)
 
-        font_down = Gtk.Button(label="A-")
-        font_down.connect("clicked", self.on_font_decrease_clicked)
-        controls.append(font_down)
+        self.font_down_button = self.create_toolbar_button("A-")
+        self.font_down_button.set_tooltip_text("Decrease font size")
+        self.font_down_button.connect("clicked", self.on_font_decrease_clicked)
+        controls.append(self.font_down_button)
 
-        font_up = Gtk.Button(label="A+")
-        font_up.connect("clicked", self.on_font_increase_clicked)
-        controls.append(font_up)
+        self.font_up_button = self.create_toolbar_button("A+")
+        self.font_up_button.set_tooltip_text("Increase font size")
+        self.font_up_button.connect("clicked", self.on_font_increase_clicked)
+        controls.append(self.font_up_button)
 
         key_controller = Gtk.EventControllerKey()
         key_controller.connect("key-pressed", self.on_key_pressed)
@@ -114,6 +121,19 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
             pass
         return {}
 
+    def install_icon_theme(self) -> None:
+        icon_dir = Path(__file__).resolve().parent
+        display = Gdk.Display.get_default()
+        if display:
+            icon_theme = Gtk.IconTheme.get_for_display(display)
+            icon_theme.add_search_path(str(icon_dir))
+        self.set_icon_name("simpleshell")
+
+    def create_toolbar_button(self, label: str) -> Gtk.Button:
+        button = Gtk.Button(label=label)
+        button.add_css_class("toolbar-button")
+        return button
+
     def save_settings(self) -> None:
         width, height = self.get_default_size()
         settings = {
@@ -132,15 +152,36 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
         if self.theme == "light":
             background = "#ffffff"
             foreground = "#111111"
+            app_bg = "#f3f3f3"
+            toolbar_bg = "#ececec"
+            border = "#cfcfcf"
+            button_bg = "#ffffff"
+            button_hover = "#f7f7f7"
             red = "#c62828"
             green = "#2e7d32"
         else:
             background = "#1e1e1e"
             foreground = "#d4d4d4"
+            app_bg = "#242424"
+            toolbar_bg = "#2d2d2d"
+            border = "#3a3a3a"
+            button_bg = "#353535"
+            button_hover = "#404040"
             red = "#ef5350"
             green = "#66bb6a"
 
         css = f"""
+        window {{
+            background: {app_bg};
+        }}
+        box.app-root {{
+            background: {app_bg};
+        }}
+        scrolledwindow.console-frame {{
+            border: 1px solid {border};
+            border-radius: 8px;
+            background: {background};
+        }}
         textview.shell-console {{
             background: {background};
             color: {foreground};
@@ -150,6 +191,26 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
         textview.shell-console text {{
             background: {background};
             color: {foreground};
+        }}
+        box.toolbar {{
+            background: {toolbar_bg};
+            border: 1px solid {border};
+            border-radius: 8px;
+            padding: 6px;
+        }}
+        label.hint-label {{
+            color: {foreground};
+            opacity: 0.9;
+        }}
+        button.toolbar-button {{
+            background: {button_bg};
+            color: {foreground};
+            border: 1px solid {border};
+            border-radius: 6px;
+            padding: 5px 12px;
+        }}
+        button.toolbar-button:hover {{
+            background: {button_hover};
         }}
         """
         self.css_provider.load_from_data(css.encode("utf-8"))
@@ -164,6 +225,8 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
         self.default_tag.set_property("foreground", foreground)
         self.red_tag.set_property("foreground", red)
         self.green_tag.set_property("foreground", green)
+        if hasattr(self, "theme_button"):
+            self.theme_button.set_label("Light Mode" if self.theme == "dark" else "Dark Mode")
 
     def start_shell(self) -> None:
         shell_binary = Path(__file__).resolve().parent.parent / "bin" / "SimpleShell"

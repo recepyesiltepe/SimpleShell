@@ -21,11 +21,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
+            adwaita-icon-theme \
             file \
+            fontconfig \
+            fonts-dejavu-core \
             gir1.2-gtk-4.0 \
             libgdk-pixbuf2.0-bin \
             libgtk-4-1 \
             libjbig0 \
+            librsvg2-common \
             libtiff5 \
             python3 \
             python3-gi \
@@ -52,12 +56,14 @@ jobs:
           mkdir -p "$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0"
           mkdir -p "$APPDIR/usr/lib/girepository-1.0"
           mkdir -p "$APPDIR/usr/lib/python3/dist-packages"
+          mkdir -p "$APPDIR/etc"
           mkdir -p "$APPDIR/usr/share/glib-2.0"
           mkdir -p "$APPDIR/usr/share/applications"
           mkdir -p "$APPDIR/usr/share/icons/hicolor/scalable/apps"
 
           install -m 0755 bin/SimpleShell "$APPDIR/usr/bin/SimpleShell"
           install -m 0755 ui/simpleshell_gtk4.py "$APPDIR/usr/bin/simpleshell_gtk4.py"
+          install -m 0644 ui/simpleshell.svg "$APPDIR/usr/bin/simpleshell.svg"
           install -m 0755 "$(command -v python3)" "$APPDIR/usr/bin/python3"
 
           cp -a "/usr/lib/python$PYTHON_VERSION" "$APPDIR/usr/lib/"
@@ -66,7 +72,12 @@ jobs:
           cp -a /usr/lib/python3/dist-packages/*.egg-info "$APPDIR/usr/lib/python3/dist-packages/" || true
           cp -a /usr/lib/$MULTIARCH/girepository-1.0/*.typelib "$APPDIR/usr/lib/girepository-1.0/"
           cp -a /usr/lib/$MULTIARCH/gdk-pixbuf-2.0/* "$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0/"
+          cp -a /etc/fonts "$APPDIR/etc/"
+          cp -a /usr/share/fontconfig "$APPDIR/usr/share/" || true
+          cp -a /usr/share/fonts "$APPDIR/usr/share/"
           cp -a /usr/share/glib-2.0/schemas "$APPDIR/usr/share/glib-2.0/"
+          cp -a /usr/share/icons/Adwaita "$APPDIR/usr/share/icons/"
+          cp -a /usr/share/icons/hicolor "$APPDIR/usr/share/icons/"
 
           should_skip_dep() {
             case "$(basename "$1")" in
@@ -178,6 +189,10 @@ jobs:
           export PYTHONPATH="$PYTHON_LIB_DIR:$PYTHON_LIB_DIR/lib-dynload:$HERE/usr/lib/python3/dist-packages:${PYTHONPATH:-}"
           export GI_TYPELIB_PATH="$HERE/usr/lib/girepository-1.0:${GI_TYPELIB_PATH:-}"
           export GSETTINGS_SCHEMA_DIR="$HERE/usr/share/glib-2.0/schemas"
+          export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          export FONTCONFIG_PATH="$HERE/etc/fonts"
+          export FONTCONFIG_FILE="$HERE/etc/fonts/fonts.conf"
+          export GSK_RENDERER=cairo
           if [[ -n "$MULTIARCH_DIR" ]]; then
             export GDK_PIXBUF_MODULEDIR="$MULTIARCH_DIR/gdk-pixbuf-2.0/2.10.0/loaders"
             export GDK_PIXBUF_MODULE_FILE="$MULTIARCH_DIR/gdk-pixbuf-2.0/2.10.0/loaders.cache"
@@ -198,13 +213,7 @@ jobs:
           EOF
           cp "$APPDIR/simpleshell.desktop" "$APPDIR/usr/share/applications/simpleshell.desktop"
 
-          cat > "$APPDIR/simpleshell.svg" <<'EOF'
-          <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-            <rect width="128" height="128" rx="24" fill="#1e1e1e"/>
-            <path d="M24 38l24 26-24 26" fill="none" stroke="#66bb6a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M58 90h46" fill="none" stroke="#d4d4d4" stroke-width="10" stroke-linecap="round"/>
-          </svg>
-          EOF
+          cp ui/simpleshell.svg "$APPDIR/simpleshell.svg"
           cp "$APPDIR/simpleshell.svg" "$APPDIR/.DirIcon"
           cp "$APPDIR/simpleshell.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/simpleshell.svg"
 
