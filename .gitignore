@@ -1,9 +1,33 @@
+# Build outputs
+bin/
+*.o
 SimpleShell
 myshell
-out.txt
-*.o
-bin/
+
+# AppImage packaging outputs
+AppDir/
+*.AppImage
+appimagetool-*.AppImage
+release-artifacts/
+
+# Runtime/local shell state
 .simpleshell_history
+.simpleshell_ui.json
+out.txt
+
+# Python cache files
 __pycache__/
 *.py[cod]
-.simpleshell_ui.json
+
+# Crash dumps and temporary files
+core
+core.*
+*.log
+*.tmp
+*.swp
+*~
+
+# Editor/OS metadata
+.vscode/
+.idea/
+.DS_Store
