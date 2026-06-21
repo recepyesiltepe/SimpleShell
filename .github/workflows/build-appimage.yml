@@ -25,6 +25,7 @@ jobs:
             gir1.2-gtk-4.0 \
             libgdk-pixbuf2.0-bin \
             libgtk-4-1 \
+            libjbig0 \
             libtiff5 \
             python3 \
             python3-gi \
@@ -104,6 +105,8 @@ jobs:
             /usr/lib/$MULTIARCH/libcairo.so.* \
             /usr/lib/$MULTIARCH/libgraphene-1.0.so.* \
             /usr/lib/$MULTIARCH/libgirepository-1.0.so.* \
+            /usr/lib/$MULTIARCH/libjbig.so.* \
+            /lib/$MULTIARCH/libjbig.so.* \
             /usr/lib/$MULTIARCH/libtiff.so.*; do
             if [[ -e "$library" ]]; then
               mkdir -p "$APPDIR$(dirname "$library")"
@@ -134,6 +137,11 @@ jobs:
           PYTHON_LIB_DIR="$(find "$HERE/usr/lib" -maxdepth 1 -type d -name 'python3.*' | head -n 1)"
           BUNDLED_LD_PATH="$HERE/usr/lib"
           for dir in "$HERE"/usr/lib/*; do
+            if [[ -d "$dir" ]]; then
+              BUNDLED_LD_PATH="$BUNDLED_LD_PATH:$dir"
+            fi
+          done
+          for dir in "$HERE"/lib "$HERE"/lib/* "$HERE"/lib64; do
             if [[ -d "$dir" ]]; then
               BUNDLED_LD_PATH="$BUNDLED_LD_PATH:$dir"
             fi
