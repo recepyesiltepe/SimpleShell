@@ -23,7 +23,9 @@ jobs:
             build-essential \
             file \
             gir1.2-gtk-4.0 \
+            libgdk-pixbuf-2.0-bin \
             libgtk-4-1 \
+            libtiff5 \
             python3 \
             python3-gi \
             wget
@@ -46,6 +48,7 @@ jobs:
           mkdir -p "$APPDIR/usr/bin"
           mkdir -p "$APPDIR/usr/lib"
           mkdir -p "$APPDIR/usr/lib/$MULTIARCH"
+          mkdir -p "$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0"
           mkdir -p "$APPDIR/usr/lib/girepository-1.0"
           mkdir -p "$APPDIR/usr/lib/python3/dist-packages"
           mkdir -p "$APPDIR/usr/share/glib-2.0"
@@ -61,14 +64,30 @@ jobs:
           cp -a /usr/lib/python3/dist-packages/pygtkcompat "$APPDIR/usr/lib/python3/dist-packages/" || true
           cp -a /usr/lib/python3/dist-packages/*.egg-info "$APPDIR/usr/lib/python3/dist-packages/" || true
           cp -a /usr/lib/$MULTIARCH/girepository-1.0/*.typelib "$APPDIR/usr/lib/girepository-1.0/"
+          cp -a /usr/lib/$MULTIARCH/gdk-pixbuf-2.0/* "$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0/"
           cp -a /usr/share/glib-2.0/schemas "$APPDIR/usr/share/glib-2.0/"
 
           copy_deps() {
             local target="$1"
-            ldd "$target" | awk '{ for (i = 1; i <= NF; i++) if (index($i, "/") == 1) print $i }' | while read -r dep; do
+            ldd "$target" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if (index($i, "/") == 1) print $i }' | while read -r dep; do
               if [[ -f "$dep" ]]; then
                 mkdir -p "$APPDIR$(dirname "$dep")"
                 cp -Ln "$dep" "$APPDIR$dep"
+              fi
+            done
+          }
+
+          copy_all_deps() {
+            local before=0
+            local after=0
+            while true; do
+              before="$(find "$APPDIR" -type f | wc -l)"
+              while IFS= read -r file; do
+                copy_deps "$file"
+              done < <(find "$APPDIR" -type f \( -perm -0100 -o -name '*.so' -o -name '*.so.*' \))
+              after="$(find "$APPDIR" -type f | wc -l)"
+              if [[ "$before" == "$after" ]]; then
+                break
               fi
             done
           }
@@ -84,13 +103,21 @@ jobs:
             /usr/lib/$MULTIARCH/libharfbuzz.so.* \
             /usr/lib/$MULTIARCH/libcairo.so.* \
             /usr/lib/$MULTIARCH/libgraphene-1.0.so.* \
-            /usr/lib/$MULTIARCH/libgirepository-1.0.so.*; do
+            /usr/lib/$MULTIARCH/libgirepository-1.0.so.* \
+            /usr/lib/$MULTIARCH/libtiff.so.*; do
             if [[ -e "$library" ]]; then
               mkdir -p "$APPDIR$(dirname "$library")"
               cp -Ln "$library" "$APPDIR$library"
               copy_deps "$library"
             fi
           done
+
+          copy_all_deps
+
+          GDK_PIXBUF_MODULEDIR="$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0/2.10.0/loaders" \
+            GDK_PIXBUF_MODULE_FILE="$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0/2.10.0/loaders.cache" \
+            gdk-pixbuf-query-loaders > "$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+          sed -i "s#$APPDIR##g" "$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0/2.10.0/loaders.cache"
 
           cat > "$APPDIR/AppRun" <<'EOF'
           #!/usr/bin/env bash
@@ -102,12 +129,17 @@ jobs:
               BUNDLED_LD_PATH="$BUNDLED_LD_PATH:$dir"
             fi
           done
+          MULTIARCH_DIR="$(find "$HERE/usr/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | head -n 1)"
           export PATH="$HERE/usr/bin:$PATH"
           export LD_LIBRARY_PATH="$BUNDLED_LD_PATH:${LD_LIBRARY_PATH:-}"
           export PYTHONHOME="$HERE/usr"
           export PYTHONPATH="$PYTHON_LIB_DIR:$PYTHON_LIB_DIR/lib-dynload:$HERE/usr/lib/python3/dist-packages:${PYTHONPATH:-}"
           export GI_TYPELIB_PATH="$HERE/usr/lib/girepository-1.0:${GI_TYPELIB_PATH:-}"
           export GSETTINGS_SCHEMA_DIR="$HERE/usr/share/glib-2.0/schemas"
+          if [[ -n "$MULTIARCH_DIR" ]]; then
+            export GDK_PIXBUF_MODULEDIR="$MULTIARCH_DIR/gdk-pixbuf-2.0/2.10.0/loaders"
+            export GDK_PIXBUF_MODULE_FILE="$MULTIARCH_DIR/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+          fi
           exec "$HERE/usr/bin/python3" "$HERE/usr/bin/simpleshell_gtk4.py" "$@"
           EOF
           chmod +x "$APPDIR/AppRun"
