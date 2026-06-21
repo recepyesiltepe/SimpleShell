@@ -181,6 +181,13 @@ static int status_from_wait(int wait_status) {
     return 1;
 }
 
+static int status_from_exec_errno(int error) {
+    if (error == ENOENT || error == ENOTDIR) {
+        return 127;
+    }
+    return 126;
+}
+
 static int run_pipeline(Pipeline *pipeline, bool *should_exit) {
     *should_exit = false;
 
@@ -269,8 +276,9 @@ static int run_pipeline(Pipeline *pipeline, bool *should_exit) {
             }
 
             execvp(pipeline->commands[i].argv[0], pipeline->commands[i].argv);
-            fprintf(stderr, "%s: %s\n", pipeline->commands[i].argv[0], strerror(errno));
-            _exit(EXIT_FAILURE);
+            int exec_error = errno;
+            fprintf(stderr, "%s: %s\n", pipeline->commands[i].argv[0], strerror(exec_error));
+            _exit(status_from_exec_errno(exec_error));
         }
 
         pids[i] = pid;

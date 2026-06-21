@@ -5,6 +5,8 @@ SRC = src/shell.c \
       src/line_editor.c \
       src/memory.c \
       src/aliases.c \
+      src/expansion.c \
+      src/runner.c \
       src/history.c \
       src/ast.c \
       src/tokenizer.c \
@@ -14,7 +16,7 @@ SRC = src/shell.c \
       src/redirection.c \
       src/execute.c
 
-.PHONY: all clean run-ui
+.PHONY: all clean run-ui test
 
 all: $(TARGET)
 
@@ -26,4 +28,7 @@ clean:
 	rm -f $(TARGET)
 
 run-ui: $(TARGET)
-	python3 ui/simpleshell_gui.py
+	python3 ui/simpleshell_gtk4.py
+
+test: $(TARGET)
+	python3 tests/run_tests.py

@@ -7,14 +7,11 @@
 #include <unistd.h>
 
 #include "aliases.h"
-#include "ast.h"
 #include "builtins.h"
-#include "execute.h"
 #include "history.h"
 #include "jobs.h"
 #include "line_editor.h"
-#include "parser.h"
-#include "tokenizer.h"
+#include "runner.h"
 
 #define MAX_LINE_LEN 4096
 
@@ -49,19 +46,78 @@ static void format_prompt(int exit_status, char *prompt, size_t prompt_size) {
         return;
     }
 
+    const char *custom_prompt = getenv("SIMPLESHELL_PROMPT");
+    if (custom_prompt && custom_prompt[0] != '\0') {
+        size_t index = 0;
+        for (const char *cursor = custom_prompt; *cursor != '\0' && index + 1 < prompt_size;
+             cursor++) {
+            if (*cursor != '\\') {
+                prompt[index++] = *cursor;
+                continue;
+            }
+
+            cursor++;
+            if (*cursor == '\0') {
+                prompt[index++] = '\\';
+                break;
+            }
+
+            if (*cursor == 'w') {
+                int written = snprintf(prompt + index, prompt_size - index, "%s", cwd);
+                if (written < 0 || (size_t)written >= prompt_size - index) {
+                    index = prompt_size - 1;
+                    break;
+                }
+                index += (size_t)written;
+            } else if (*cursor == '?') {
+                int written = snprintf(prompt + index, prompt_size - index, "%d", exit_status);
+                if (written < 0 || (size_t)written >= prompt_size - index) {
+                    index = prompt_size - 1;
+                    break;
+                }
+                index += (size_t)written;
+            } else if (*cursor == '\\') {
+                prompt[index++] = '\\';
+            } else {
+                if (index + 2 >= prompt_size) {
+                    break;
+                }
+                prompt[index++] = '\\';
+                prompt[index++] = *cursor;
+            }
+        }
+        prompt[index] = '\0';
+        free(cwd);
+        return;
+    }
+
     const char *color = exit_status == 0 ? "\033[32m" : "\033[31m";
     snprintf(prompt, prompt_size, "%s[%d]\033[0m %s $ ", color, exit_status, cwd);
     free(cwd);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     char line[MAX_LINE_LEN];
     char expanded_line[MAX_LINE_LEN];
     char prompt[8192];
     int exit_status = 0;
 
+    if (argc > 2) {
+        fprintf(stderr, "Usage: %s [script]\n", argv[0]);
+        return 2;
+    }
+
     if (history_init() != 0) {
         fprintf(stderr, "warning: failed to initialize history file\n");
+    }
+
+    if (argc == 2) {
+        bool should_exit = false;
+        int run_status = run_shell_file(argv[1], &exit_status, &should_exit);
+        history_cleanup();
+        aliases_cleanup();
+        jobs_cleanup();
+        return run_status == 0 ? exit_status : run_status;
     }
 
     while (1) {
@@ -100,35 +156,10 @@ int main(void) {
             history_add(line_to_run);
         }
 
-        char *aliased_line = aliases_expand_line(line_to_run);
-
-        TokenList tokens;
-        token_list_init(&tokens);
-        if (tokenize_line(aliased_line, &tokens, exit_status) != 0) {
-            token_list_free(&tokens);
-            free(aliased_line);
-            continue;
-        }
-
-        AstNode *root = NULL;
-        int parse_status = parse_tokens(&tokens, &root);
-        if (parse_status == 1) {
-            token_list_free(&tokens);
-            free(aliased_line);
-            continue;
-        }
-        if (parse_status != 0) {
-            token_list_free(&tokens);
-            free(aliased_line);
-            continue;
-        }
-
         bool should_exit = false;
-        exit_status = execute_ast(root, &should_exit);
-
-        ast_node_free(root);
-        token_list_free(&tokens);
-        free(aliased_line);
+        if (run_shell_line(line_to_run, &exit_status, &should_exit) != 0) {
+            continue;
+        }
 
         if (should_exit) {
             break;

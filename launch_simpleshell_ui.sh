@@ -8,4 +8,4 @@ if [[ ! -x "bin/SimpleShell" ]]; then
   make
 fi
 
-exec python3 "ui/simpleshell_gui.py"
+exec python3 "ui/simpleshell_gtk4.py"

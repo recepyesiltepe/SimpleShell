@@ -16,6 +16,7 @@ typedef enum {
 typedef struct {
     TokenType type;
     char *text;
+    int quoted;
 } Token;
 
 typedef struct {

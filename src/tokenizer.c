@@ -22,13 +22,15 @@ static void push_operator(TokenList *tokens, TokenType type) {
     Token token;
     token.type = type;
     token.text = NULL;
+    token.quoted = 0;
     token_list_push(tokens, token);
 }
 
-static int push_word(TokenList *tokens, const char *word) {
+static int push_word(TokenList *tokens, const char *word, bool quoted) {
     Token token;
     token.type = TOKEN_WORD;
     token.text = xstrdup(word);
+    token.quoted = quoted ? 1 : 0;
     if (!token.text) {
         perror("strdup");
         return -1;
@@ -148,6 +150,9 @@ int tokenize_line(const char *line, TokenList *tokens, int last_exit_status) {
         if (*cursor == '\0') {
             break;
         }
+        if (*cursor == '#') {
+            break;
+        }
 
         if (*cursor == '&' && *(cursor + 1) == '&') {
             push_operator(tokens, TOKEN_AND_IF);
@@ -193,15 +198,22 @@ int tokenize_line(const char *line, TokenList *tokens, int last_exit_status) {
         char buffer[MAX_LINE_LEN];
         size_t index = 0;
         bool token_started = false;
+        bool quoted = false;
 
         while (*cursor != '\0' && !isspace((unsigned char)*cursor) &&
                *cursor != '&' && *cursor != '|' && *cursor != ';' &&
                *cursor != '<' && *cursor != '>') {
             token_started = true;
             if (*cursor == '\'' || *cursor == '"') {
+                quoted = true;
                 char quote = *cursor++;
                 while (*cursor != '\0' && *cursor != quote) {
-                    if (quote == '"' && *cursor == '$') {
+                    if (quote == '"' && *cursor == '\\' && *(cursor + 1) != '\0') {
+                        cursor++;
+                        if (append_char(buffer, &index, *cursor++) != 0) {
+                            return -1;
+                        }
+                    } else if (quote == '"' && *cursor == '$') {
                         if (append_variable_value(&cursor, buffer, &index, last_exit_status) !=
                             0) {
                             return -1;
@@ -218,7 +230,12 @@ int tokenize_line(const char *line, TokenList *tokens, int last_exit_status) {
                 }
                 cursor++;
             } else {
-                if (*cursor == '$') {
+                if (*cursor == '\\' && *(cursor + 1) != '\0') {
+                    cursor++;
+                    if (append_char(buffer, &index, *cursor++) != 0) {
+                        return -1;
+                    }
+                } else if (*cursor == '$') {
                     if (append_variable_value(&cursor, buffer, &index, last_exit_status) != 0) {
                         return -1;
                     }
@@ -231,7 +248,7 @@ int tokenize_line(const char *line, TokenList *tokens, int last_exit_status) {
         }
 
         buffer[index] = '\0';
-        if (token_started && push_word(tokens, buffer) != 0) {
+        if (token_started && push_word(tokens, buffer, quoted) != 0) {
             return -1;
         }
     }

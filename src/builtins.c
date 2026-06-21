@@ -13,6 +13,7 @@
 #include "history.h"
 #include "jobs.h"
 #include "memory.h"
+#include "runner.h"
 
 bool is_builtin(const Command *cmd) {
     if (!cmd || cmd->argc == 0) {
@@ -24,7 +25,8 @@ bool is_builtin(const Command *cmd) {
            strcmp(cmd->argv[0], "export") == 0 || strcmp(cmd->argv[0], "unset") == 0 ||
            strcmp(cmd->argv[0], "history") == 0 || strcmp(cmd->argv[0], "help") == 0 ||
            strcmp(cmd->argv[0], "type") == 0 || strcmp(cmd->argv[0], "alias") == 0 ||
-           strcmp(cmd->argv[0], "unalias") == 0;
+           strcmp(cmd->argv[0], "unalias") == 0 || strcmp(cmd->argv[0], "source") == 0 ||
+           strcmp(cmd->argv[0], ".") == 0 || strcmp(cmd->argv[0], "which") == 0;
 }
 
 static int parse_exit_code(Command *cmd) {
@@ -111,8 +113,10 @@ static int run_help_builtin(Command *cmd) {
     printf("  unset NAME...       Unset environment variable(s)\n");
     printf("  alias [NAME=VALUE]  Define or list aliases\n");
     printf("  unalias NAME...     Remove aliases\n");
+    printf("  source FILE         Run commands from a file\n");
     printf("  history [N|-c]      Show last N history entries or clear history\n");
     printf("  type NAME...        Show how commands resolve\n");
+    printf("  which NAME...       Show executable paths\n");
     printf("  jobs                List background jobs\n");
     printf("  fg [%%JOB]           Bring job to foreground\n");
     printf("  bg [%%JOB]           Resume job in background\n");
@@ -165,6 +169,17 @@ static int run_unalias_builtin(Command *cmd) {
         }
     }
     return status;
+}
+
+static int run_source_builtin(Command *cmd, bool *should_exit) {
+    if (cmd->argc != 2) {
+        fprintf(stderr, "%s: expected exactly one file\n", cmd->argv[0]);
+        return 1;
+    }
+
+    int exit_status = 0;
+    int run_status = run_shell_file(cmd->argv[1], &exit_status, should_exit);
+    return run_status == 0 ? exit_status : run_status;
 }
 
 static int find_in_path(const char *name, char *resolved_path, size_t resolved_path_size) {
@@ -226,6 +241,34 @@ static int run_type_builtin(Command *cmd) {
             printf("%s is %s\n", cmd->argv[i], path);
         } else {
             printf("%s not found\n", cmd->argv[i]);
+            status = 1;
+        }
+    }
+
+    return status;
+}
+
+static int run_which_builtin(Command *cmd) {
+    if (cmd->argc < 2) {
+        fprintf(stderr, "which: expected at least one command name\n");
+        return 1;
+    }
+
+    int status = 0;
+    for (int i = 1; i < cmd->argc; i++) {
+        if (strchr(cmd->argv[i], '/')) {
+            if (access(cmd->argv[i], X_OK) == 0) {
+                printf("%s\n", cmd->argv[i]);
+            } else {
+                status = 1;
+            }
+            continue;
+        }
+
+        char path[PATH_MAX];
+        if (find_in_path(cmd->argv[i], path, sizeof(path)) == 0) {
+            printf("%s\n", path);
+        } else {
             status = 1;
         }
     }
@@ -431,6 +474,10 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
         return run_type_builtin(cmd);
     }
 
+    if (strcmp(cmd->argv[0], "which") == 0) {
+        return run_which_builtin(cmd);
+    }
+
     if (strcmp(cmd->argv[0], "alias") == 0) {
         return run_alias_builtin(cmd);
     }
@@ -439,12 +486,17 @@ int run_builtin_parent(Command *cmd, bool *should_exit) {
         return run_unalias_builtin(cmd);
     }
 
+    if (strcmp(cmd->argv[0], "source") == 0 || strcmp(cmd->argv[0], ".") == 0) {
+        return run_source_builtin(cmd, should_exit);
+    }
+
     return 1;
 }
 
 int run_builtin_child(Command *cmd) {
     if (strcmp(cmd->argv[0], "jobs") == 0 || strcmp(cmd->argv[0], "fg") == 0 ||
-        strcmp(cmd->argv[0], "bg") == 0) {
+        strcmp(cmd->argv[0], "bg") == 0 || strcmp(cmd->argv[0], "source") == 0 ||
+        strcmp(cmd->argv[0], ".") == 0) {
         fprintf(stderr, "%s: not supported in pipeline\n", cmd->argv[0]);
         return 1;
     }

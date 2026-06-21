@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "expansion.h"
 #include "memory.h"
 
 typedef struct {
@@ -77,7 +78,9 @@ static int parse_command(ParserState *state, Command *cmd) {
             if (!saw_word && is_assignment_word(token->text)) {
                 command_add_env_assignment(cmd, token->text);
             } else {
-                command_add_arg(cmd, token->text);
+                if (expand_word_to_command_args(cmd, token->text, token->quoted) != 0) {
+                    return -1;
+                }
                 saw_word = true;
             }
             state->pos++;
@@ -101,10 +104,10 @@ static int parse_command(ParserState *state, Command *cmd) {
 
         if (redir_type == TOKEN_REDIR_IN) {
             free(cmd->input_file);
-            cmd->input_file = xstrdup(target->text);
+            cmd->input_file = expand_redirection_target(target->text, target->quoted);
         } else {
             free(cmd->output_file);
-            cmd->output_file = xstrdup(target->text);
+            cmd->output_file = expand_redirection_target(target->text, target->quoted);
             cmd->append_output = (redir_type == TOKEN_REDIR_APPEND);
         }
 
