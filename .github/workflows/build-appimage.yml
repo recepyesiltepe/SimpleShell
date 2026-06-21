@@ -68,10 +68,19 @@ jobs:
           cp -a /usr/lib/$MULTIARCH/gdk-pixbuf-2.0/* "$APPDIR/usr/lib/$MULTIARCH/gdk-pixbuf-2.0/"
           cp -a /usr/share/glib-2.0/schemas "$APPDIR/usr/share/glib-2.0/"
 
+          should_skip_dep() {
+            case "$(basename "$1")" in
+              ld-linux*.so*|libBrokenLocale.so*|libanl.so*|libc.so*|libdl.so*|libm.so*|libmvec.so*|libnsl.so*|libpthread.so*|libresolv.so*|librt.so*|libthread_db.so*|libutil.so*)
+                return 0
+                ;;
+            esac
+            return 1
+          }
+
           copy_deps() {
             local target="$1"
             ldd "$target" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if (index($i, "/") == 1) print $i }' | while read -r dep; do
-              if [[ -f "$dep" ]]; then
+              if [[ -f "$dep" ]] && ! should_skip_dep "$dep"; then
                 mkdir -p "$APPDIR$(dirname "$dep")"
                 cp -Ln "$dep" "$APPDIR$dep"
               fi
@@ -116,6 +125,21 @@ jobs:
           done
 
           copy_all_deps
+          find "$APPDIR" -type f \( \
+            -name 'ld-linux*.so*' -o \
+            -name 'libBrokenLocale.so*' -o \
+            -name 'libanl.so*' -o \
+            -name 'libc.so*' -o \
+            -name 'libdl.so*' -o \
+            -name 'libm.so*' -o \
+            -name 'libmvec.so*' -o \
+            -name 'libnsl.so*' -o \
+            -name 'libpthread.so*' -o \
+            -name 'libresolv.so*' -o \
+            -name 'librt.so*' -o \
+            -name 'libthread_db.so*' -o \
+            -name 'libutil.so*' \
+          \) -delete
 
           GDK_PIXBUF_QUERY_LOADERS="$(command -v gdk-pixbuf-query-loaders || true)"
           if [[ -z "$GDK_PIXBUF_QUERY_LOADERS" ]]; then
@@ -133,6 +157,7 @@ jobs:
 
           cat > "$APPDIR/AppRun" <<'EOF'
           #!/usr/bin/env bash
+          shopt -s nullglob
           HERE="$(dirname "$(readlink -f "$0")")"
           PYTHON_LIB_DIR="$(find "$HERE/usr/lib" -maxdepth 1 -type d -name 'python3.*' | head -n 1)"
           BUNDLED_LD_PATH="$HERE/usr/lib"
