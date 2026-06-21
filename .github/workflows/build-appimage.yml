@@ -170,6 +170,10 @@ jobs:
           #!/usr/bin/env bash
           shopt -s nullglob
           HERE="$(dirname "$(readlink -f "$0")")"
+          export SIMPLESHELL_APPDIR="$HERE"
+          export SIMPLESHELL_HOST_PATH="${PATH:-}"
+          export SIMPLESHELL_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+          export SIMPLESHELL_HOST_XDG_DATA_DIRS="${XDG_DATA_DIRS:-}"
           PYTHON_LIB_DIR="$(find "$HERE/usr/lib" -maxdepth 1 -type d -name 'python3.*' | head -n 1)"
           BUNDLED_LD_PATH="$HERE/usr/lib"
           for dir in "$HERE"/usr/lib/*; do

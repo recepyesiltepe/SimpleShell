@@ -236,7 +236,7 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
 
         pid, master_fd = pty.fork()
         if pid == 0:
-            env = {**os.environ, "SIMPLESHELL_NO_TTY_EDITOR": "1"}
+            env = self.build_shell_environment()
             os.execve(str(shell_binary), [str(shell_binary)], env)
 
         self.shell_pid = pid
@@ -248,6 +248,51 @@ class SimpleShellGtkWindow(Gtk.ApplicationWindow):
         self.reader_thread.start()
         self.append_output("[SimpleShell started]\n")
         self.scroll_to_end()
+
+    def build_shell_environment(self) -> dict[str, str]:
+        env = dict(os.environ)
+        appdir = env.get("SIMPLESHELL_APPDIR")
+
+        host_path = env.get("SIMPLESHELL_HOST_PATH")
+        if host_path is not None:
+            env["PATH"] = host_path
+        elif appdir and "PATH" in env:
+            env["PATH"] = self.remove_appdir_paths(env["PATH"], appdir)
+
+        host_library_path = env.get("SIMPLESHELL_HOST_LD_LIBRARY_PATH")
+        if host_library_path:
+            env["LD_LIBRARY_PATH"] = host_library_path
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+
+        host_xdg_data_dirs = env.get("SIMPLESHELL_HOST_XDG_DATA_DIRS")
+        if host_xdg_data_dirs:
+            env["XDG_DATA_DIRS"] = host_xdg_data_dirs
+        elif appdir and "XDG_DATA_DIRS" in env:
+            env["XDG_DATA_DIRS"] = self.remove_appdir_paths(env["XDG_DATA_DIRS"], appdir)
+
+        for name in [
+            "PYTHONHOME",
+            "PYTHONPATH",
+            "GI_TYPELIB_PATH",
+            "GSETTINGS_SCHEMA_DIR",
+            "GDK_PIXBUF_MODULEDIR",
+            "GDK_PIXBUF_MODULE_FILE",
+            "FONTCONFIG_PATH",
+            "FONTCONFIG_FILE",
+            "GSK_RENDERER",
+            "SIMPLESHELL_APPDIR",
+            "SIMPLESHELL_HOST_PATH",
+            "SIMPLESHELL_HOST_LD_LIBRARY_PATH",
+            "SIMPLESHELL_HOST_XDG_DATA_DIRS",
+        ]:
+            env.pop(name, None)
+
+        env["SIMPLESHELL_NO_TTY_EDITOR"] = "1"
+        return env
+
+    def remove_appdir_paths(self, value: str, appdir: str) -> str:
+        return ":".join(path for path in value.split(":") if path and not path.startswith(appdir))
 
     def shell_reader_loop(self) -> None:
         while not self.stop_reader.is_set():
